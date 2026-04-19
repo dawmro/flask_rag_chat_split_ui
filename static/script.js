@@ -12,6 +12,14 @@ const pdfViewer = () => document.getElementById("pdf-viewer");
 const pdfFrame = () => document.getElementById("pdf-frame");
 const pdfEmptyState = () => document.getElementById("pdf-empty-state");
 
+const escapeHtml = (value = "") =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const cleanTextInput = (value) => value.trim().replace(/[\n\t]+/g, " ");
 
 const scrollToBottom = () => {
@@ -88,7 +96,7 @@ function renderUserMessage(userMessage) {
   input().value = "";
   const html = `
     <div class="message-line my-text">
-      <div class="message-box my-text">${userMessage}</div>
+      <div class="message-box my-text">${escapeHtml(userMessage)}</div>
     </div>
   `;
   messageList().insertAdjacentHTML("beforeend", html);
@@ -100,7 +108,7 @@ function renderBotMessage(response, uploadButtonHtml = "") {
   const text = typeof response === "string" ? response : response?.botResponse || "No response received.";
   const html = `
     <div class="message-line">
-      <div class="message-box">${text}${uploadButtonHtml}</div>
+      <div class="message-box">${escapeHtml(text)} ${uploadButtonHtml}</div>
     </div>
   `;
   messageList().insertAdjacentHTML("beforeend", html);
