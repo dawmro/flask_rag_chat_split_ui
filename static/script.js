@@ -1,3 +1,4 @@
+let responses = [];
 let isFirstMessage = true;
 const baseUrl = window.location.origin;
 
@@ -11,10 +12,32 @@ const pdfViewer = () => document.getElementById("pdf-viewer");
 const pdfFrame = () => document.getElementById("pdf-frame");
 const pdfEmptyState = () => document.getElementById("pdf-empty-state");
 
-function scrollToBottom() {
+const cleanTextInput = (value) => value.trim().replace(/[\n\t]+/g, " ");
+
+const scrollToBottom = () => {
   const el = chatWindow();
   if (el) {
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: "smooth",
+    });
+  }
+};
+
+function loadingElement() {
+  return (
+    document.querySelector(".loading-animation.bot-loading") ||
+    document.querySelector(".loading-animation")
+  );
+}
+
+function setLoading(visible) {
+  const loader = loadingElement();
+  if (loader) {
+    loader.style.display = visible ? "flex" : "none";
+  }
+  if (sendBtn()) {
+    sendBtn().disabled = visible || isFirstMessage;
   }
 }
 
@@ -48,7 +71,32 @@ function resetPdfViewer() {
   }
 }
 
+async function processUserMessage(userMessage) {
+  const response = await fetch(baseUrl + "/process-message", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ userMessage }),
+  });
+
+  return await response.json();
+}
+
+function renderUserMessage(userMessage) {
+  input().value = "";
+  const html = `
+    <div class="message-line my-text">
+      <div class="message-box my-text">${userMessage}</div>
+    </div>
+  `;
+  messageList().insertAdjacentHTML("beforeend", html);
+  scrollToBottom();
+}
+
 function renderBotMessage(response, uploadButtonHtml = "") {
+  responses.push(response);
   const text = typeof response === "string" ? response : response?.botResponse || "No response received.";
   const html = `
     <div class="message-line">
@@ -56,18 +104,114 @@ function renderBotMessage(response, uploadButtonHtml = "") {
     </div>
   `;
   messageList().insertAdjacentHTML("beforeend", html);
+  setLoading(false);
   scrollToBottom();
 }
 
+async function populateBotResponse(userMessage = "") {
+  setLoading(true);
+
+  let response;
+  let uploadButtonHtml = "";
+
+  if (isFirstMessage) {
+    response = {
+      botResponse: "Hello there! I'm your friendly data assistant. Please upload a PDF file.",
+    };
+    uploadButtonHtml = `
+      <div class="upload-bubble">
+        <button id="upload-button" type="button">Upload PDF</button>
+        <input id="file-upload" type="file" accept="application/pdf" hidden />
+      </div>
+    `;
+  } else {
+    response = await processUserMessage(userMessage);
+  }
+
+  renderBotMessage(response, uploadButtonHtml);
+
+  if (isFirstMessage) {
+    const uploadButton = document.getElementById("upload-button");
+    const fileInput = document.getElementById("file-upload");
+
+    uploadButton?.addEventListener("click", () => {
+      fileInput?.click();
+    });
+
+    fileInput?.addEventListener(
+      "change",
+      async function () {
+        const file = this.files?.[0];
+        if (!file) return;
+
+        setLoading(true);
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          const response = await fetch(baseUrl + "/process-document", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (response.ok && uploadButton) {
+            uploadButton.disabled = true;
+          }
+
+          if (data.pdfUrl) {
+            showPdf(data.pdfUrl);
+          }
+
+          renderBotMessage(data);
+        } catch (error) {
+          renderBotMessage({
+            botResponse: `Upload failed: ${error.message}`,
+          });
+        }
+      },
+      { once: true }
+    );
+
+    isFirstMessage = false;
+    setLoading(false);
+  }
+}
+
+function submitMessage() {
+  const msg = cleanTextInput(input().value);
+  if (!msg || isFirstMessage) {
+    return;
+  }
+
+  renderUserMessage(msg);
+  populateBotResponse(msg);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  sendBtn().disabled = true;
+  if (sendBtn()) {
+    sendBtn().disabled = true;
+  }
+
   resetPdfViewer();
+
+  input()?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submitMessage();
+    }
+  });
+
+  sendBtn()?.addEventListener("click", submitMessage);
 
   resetBtn()?.addEventListener("click", () => {
     messageList().innerHTML = "";
+    responses = [];
     isFirstMessage = true;
     resetPdfViewer();
-    location.reload();
+    populateBotResponse();
   });
 
   themeSwitch()?.addEventListener("change", () => {
@@ -75,38 +219,5 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("resize", syncPanelHeights);
-
-  renderBotMessage(
-    { botResponse: "Hello there! I'm your friendly data assistant. Please upload a PDF file." },
-    `<div class="upload-bubble"><button id="upload-button" type="button">Upload PDF</button><input id="file-upload" type="file" accept="application/pdf" hidden /></div>`
-  );
-
-  const uploadButton = document.getElementById("upload-button");
-  const fileInput = document.getElementById("file-upload");
-
-  uploadButton?.addEventListener("click", () => fileInput?.click());
-
-  fileInput?.addEventListener("change", async function () {
-    const file = this.files?.[0];
-    if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch(baseUrl + "/process-document", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (data.pdfUrl) {
-      showPdf(data.pdfUrl);
-      uploadButton.disabled = true;
-      isFirstMessage = false;
-      sendBtn().disabled = false;
-    }
-
-    renderBotMessage(data);
-  }, { once: true });
+  populateBotResponse();
 });
