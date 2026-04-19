@@ -44,6 +44,7 @@ function setLoading(visible) {
   if (loader) {
     loader.style.display = visible ? "flex" : "none";
   }
+
   if (sendBtn()) {
     sendBtn().disabled = visible || isFirstMessage;
   }
@@ -58,11 +59,14 @@ function syncPanelHeights() {
 
 function showPdf(pdfUrl) {
   if (!pdfFrame() || !pdfViewer()) return;
+
   pdfFrame().src = `${baseUrl}${pdfUrl}`;
   pdfViewer().hidden = false;
+
   if (pdfEmptyState()) {
     pdfEmptyState().hidden = true;
   }
+
   requestAnimationFrame(syncPanelHeights);
 }
 
@@ -71,9 +75,11 @@ function resetPdfViewer() {
     pdfFrame().src = "";
     pdfFrame().style.height = "";
   }
+
   if (pdfViewer()) {
     pdfViewer().hidden = true;
   }
+
   if (pdfEmptyState()) {
     pdfEmptyState().hidden = false;
   }
@@ -94,23 +100,32 @@ async function processUserMessage(userMessage) {
 
 function renderUserMessage(userMessage) {
   input().value = "";
+
   const html = `
     <div class="message-line my-text">
       <div class="message-box my-text">${escapeHtml(userMessage)}</div>
     </div>
   `;
+
   messageList().insertAdjacentHTML("beforeend", html);
   scrollToBottom();
 }
 
 function renderBotMessage(response, uploadButtonHtml = "") {
   responses.push(response);
-  const text = typeof response === "string" ? response : response?.botResponse || "No response received.";
+
+  const text =
+    typeof response === "string"
+      ? response
+      : response?.botResponse || "No response received.";
+
   const html = `
     <div class="message-line">
-      <div class="message-box">${escapeHtml(text)} ${uploadButtonHtml}</div>
+      <div class="message-box">${escapeHtml(text)}</div>
     </div>
+    ${uploadButtonHtml}
   `;
+
   messageList().insertAdjacentHTML("beforeend", html);
   setLoading(false);
   scrollToBottom();
@@ -124,12 +139,16 @@ async function populateBotResponse(userMessage = "") {
 
   if (isFirstMessage) {
     response = {
-      botResponse: "Hello there! I'm your friendly data assistant. Please upload a PDF file.",
+      botResponse:
+        "Hello there! I'm your friendly data assistant. Please upload a PDF file.",
     };
+
     uploadButtonHtml = `
-      <div class="upload-bubble">
-        <button id="upload-button" type="button">Upload PDF</button>
-        <input id="file-upload" type="file" accept="application/pdf" hidden />
+      <div class="message-line">
+        <div class="message-box upload-bubble">
+          <button id="upload-button" type="button">Upload PDF</button>
+          <input id="file-upload" type="file" accept="application/pdf" hidden>
+        </div>
       </div>
     `;
   } else {
@@ -190,6 +209,7 @@ async function populateBotResponse(userMessage = "") {
 
 function submitMessage() {
   const msg = cleanTextInput(input().value);
+
   if (!msg || isFirstMessage) {
     return;
   }
@@ -227,5 +247,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("resize", syncPanelHeights);
+
   populateBotResponse();
 });
