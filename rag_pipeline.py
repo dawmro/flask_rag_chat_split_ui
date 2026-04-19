@@ -1,21 +1,7 @@
-"""
-rag_pipeline.py
-
-Minimal PDF RAG pipeline for the Flask app.
-
-Requirements:
-- Ollama running locally
-- An Ollama chat model available, e.g. llama3.1:8b-instruct-q8_0
-- An Ollama embedding model available, e.g. mxbai-embed-large
-
-This module exposes two functions used by server.py:
-- process_document(document_path): load/index a PDF
-- process_prompt(prompt): answer a question against the indexed PDF
-"""
-
 import logging
 import os
 import shutil
+import uuid
 from typing import Optional
 
 from langchain.chains import RetrievalQA
@@ -73,17 +59,17 @@ def reset_state() -> None:
 def _clear_vector_store() -> None:
     if os.path.isdir(CHROMA_DB_DIR):
         shutil.rmtree(CHROMA_DB_DIR)
+    os.makedirs(CHROMA_DB_DIR, exist_ok=True)
+
+
+_clear_vector_store()
 
 
 def process_document(document_path: str) -> None:
-    """
-    Load a PDF, split it into chunks, embed it, store it in Chroma,
-    and build a retrieval QA chain.
-    """
     global conversation_retrieval_chain, current_document_path, chat_history
 
     if not os.path.isfile(document_path):
-      raise FileNotFoundError(f"Document not found: {document_path}")
+        raise FileNotFoundError(f"Document not found: {document_path}")
 
     logger.info("Loading PDF document: %s", document_path)
 
@@ -102,13 +88,12 @@ def process_document(document_path: str) -> None:
     chunks = splitter.split_documents(documents)
     logger.info("Split document into %d chunk(s)", len(chunks))
 
-    _clear_vector_store()
-
     logger.info("Creating Chroma vector store...")
+    persist_dir = os.path.join(CHROMA_DB_DIR, str(uuid.uuid4()))
     db = Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
-        persist_directory=CHROMA_DB_DIR,
+        persist_directory=persist_dir,
     )
     db.persist()
 
@@ -128,13 +113,11 @@ def process_document(document_path: str) -> None:
 
     current_document_path = document_path
     chat_history = []
+
     logger.info("RAG pipeline is ready for questions")
 
 
 def process_prompt(prompt: str) -> str:
-    """
-    Ask a question against the currently loaded PDF.
-    """
     global conversation_retrieval_chain, chat_history
 
     if conversation_retrieval_chain is None:
