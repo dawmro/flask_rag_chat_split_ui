@@ -1,252 +1,151 @@
-let responses = [];
-let isFirstMessage = true;
 const baseUrl = window.location.origin;
 
-const chatWindow = () => document.getElementById("chat-window");
-const messageList = () => document.getElementById("message-list");
-const input = () => document.getElementById("message-input");
-const sendBtn = () => document.getElementById("send-button");
-const resetBtn = () => document.getElementById("reset-button");
-const themeSwitch = () => document.getElementById("light-dark-mode-switch");
-const pdfViewer = () => document.getElementById("pdf-viewer");
-const pdfFrame = () => document.getElementById("pdf-frame");
-const pdfEmptyState = () => document.getElementById("pdf-empty-state");
+const messageList = document.getElementById("message-list");
+const input = document.getElementById("message-input");
+const sendBtn = document.getElementById("send-button");
+const resetBtn = document.getElementById("reset-button");
+const themeToggle = document.getElementById("theme-toggle");
 
-const escapeHtml = (value = "") =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+const pdfFrame = document.getElementById("pdf-frame");
+const pdfEmpty = document.getElementById("pdf-empty");
+const loading = document.getElementById("loading");
 
-const cleanTextInput = (value) => value.trim().replace(/[\n\t]+/g, " ");
+let pdfLoaded = false;
 
-const scrollToBottom = () => {
-  const el = chatWindow();
-  if (el) {
-    el.scrollTo({
-      top: el.scrollHeight,
-      behavior: "smooth",
-    });
-  }
-};
-
-function loadingElement() {
-  return (
-    document.querySelector(".loading-animation.bot-loading") ||
-    document.querySelector(".loading-animation")
-  );
+function escapeHtml(text = "") {
+  return text.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]));
 }
 
-function setLoading(visible) {
-  const loader = loadingElement();
-  if (loader) {
-    loader.style.display = visible ? "flex" : "none";
-  }
-
-  if (sendBtn()) {
-    sendBtn().disabled = visible || isFirstMessage;
-  }
-}
-
-function syncPanelHeights() {
-  if (!pdfFrame() || !pdfViewer() || pdfViewer().hidden || window.innerWidth < 768) {
-    return;
-  }
-  pdfFrame().style.height = `${pdfViewer().clientHeight}px`;
-}
-
-function showPdf(pdfUrl) {
-  if (!pdfFrame() || !pdfViewer()) return;
-
-  pdfFrame().src = `${baseUrl}${pdfUrl}`;
-  pdfViewer().hidden = false;
-
-  if (pdfEmptyState()) {
-    pdfEmptyState().hidden = true;
-  }
-
-  requestAnimationFrame(syncPanelHeights);
-}
-
-function resetPdfViewer() {
-  if (pdfFrame()) {
-    pdfFrame().src = "";
-    pdfFrame().style.height = "";
-  }
-
-  if (pdfViewer()) {
-    pdfViewer().hidden = true;
-  }
-
-  if (pdfEmptyState()) {
-    pdfEmptyState().hidden = false;
-  }
-}
-
-async function processUserMessage(userMessage) {
-  const response = await fetch(baseUrl + "/process-message", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({ userMessage }),
+function scrollToBottom() {
+  window.requestAnimationFrame(() => {
+    const chatWindow = document.getElementById("chat-window");
+    chatWindow.scrollTop = chatWindow.scrollHeight;
   });
-
-  return await response.json();
 }
 
-function renderUserMessage(userMessage) {
-  input().value = "";
+function setLoading(isLoading) {
+  loading.style.display = isLoading ? "block" : "none";
+  sendBtn.disabled = isLoading || !pdfLoaded;
+}
 
-  const html = `
-    <div class="message-line my-text">
-      <div class="message-box my-text">${escapeHtml(userMessage)}</div>
-    </div>
-  `;
+function addMessage(text, type = "bot") {
+  const line = document.createElement("div");
+  line.className = "message-line" + (type === "user" ? " user" : "");
 
-  messageList().insertAdjacentHTML("beforeend", html);
+  const box = document.createElement("div");
+  box.className = "message-box" + (type === "user" ? " user" : "");
+  box.innerHTML = escapeHtml(text);
+
+  line.appendChild(box);
+  messageList.appendChild(line);
   scrollToBottom();
 }
 
-function renderBotMessage(response, uploadButtonHtml = "") {
-  responses.push(response);
-
-  const text =
-    typeof response === "string"
-      ? response
-      : response?.botResponse || "No response received.";
-
-  const html = `
-    <div class="message-line">
-      <div class="message-box">${escapeHtml(text)}</div>
-    </div>
-    ${uploadButtonHtml}
-  `;
-
-  messageList().insertAdjacentHTML("beforeend", html);
-  setLoading(false);
-  scrollToBottom();
-}
-
-async function populateBotResponse(userMessage = "") {
+async function uploadPdf(file) {
   setLoading(true);
 
-  let response;
-  let uploadButtonHtml = "";
+  const formData = new FormData();
+  formData.append("file", file);
 
-  if (isFirstMessage) {
-    response = {
-      botResponse:
-        "Hello there! I'm your friendly data assistant. Please upload a PDF file.",
-    };
+  const res = await fetch(baseUrl + "/process-document", {
+    method: "POST",
+    body: formData,
+  });
 
-    uploadButtonHtml = `
-      <div class="message-line">
-        <div class="message-box upload-bubble">
-          <button id="upload-button" type="button">Upload PDF</button>
-          <input id="file-upload" type="file" accept="application/pdf" hidden>
-        </div>
-      </div>
-    `;
-  } else {
-    response = await processUserMessage(userMessage);
-  }
+  const data = await res.json();
 
-  renderBotMessage(response, uploadButtonHtml);
-
-  if (isFirstMessage) {
-    const uploadButton = document.getElementById("upload-button");
-    const fileInput = document.getElementById("file-upload");
-
-    uploadButton?.addEventListener("click", () => {
-      fileInput?.click();
-    });
-
-    fileInput?.addEventListener(
-      "change",
-      async function () {
-        const file = this.files?.[0];
-        if (!file) return;
-
-        setLoading(true);
-
-        const formData = new FormData();
-        formData.append("file", file);
-
-        try {
-          const response = await fetch(baseUrl + "/process-document", {
-            method: "POST",
-            body: formData,
-          });
-
-          const data = await response.json();
-
-          if (response.ok && uploadButton) {
-            uploadButton.disabled = true;
-          }
-
-          if (data.pdfUrl) {
-            showPdf(data.pdfUrl);
-          }
-
-          renderBotMessage(data);
-        } catch (error) {
-          renderBotMessage({
-            botResponse: `Upload failed: ${error.message}`,
-          });
-        }
-      },
-      { once: true }
-    );
-
-    isFirstMessage = false;
+  if (!res.ok) {
+    addMessage(data.botResponse || "Upload failed.");
     setLoading(false);
-  }
-}
-
-function submitMessage() {
-  const msg = cleanTextInput(input().value);
-
-  if (!msg || isFirstMessage) {
     return;
   }
 
-  renderUserMessage(msg);
-  populateBotResponse(msg);
-}
-
-document.addEventListener("DOMContentLoaded", () => {
-  if (sendBtn()) {
-    sendBtn().disabled = true;
+  if (data.pdfUrl) {
+    pdfFrame.src = baseUrl + data.pdfUrl;
+    pdfFrame.hidden = false;
+    pdfEmpty.hidden = true;
+    pdfLoaded = true;
   }
 
-  resetPdfViewer();
+  addMessage(data.botResponse || "PDF uploaded.");
+  setLoading(false);
+}
 
-  input()?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      submitMessage();
-    }
+async function sendMessage(text) {
+  setLoading(true);
+
+  const res = await fetch(baseUrl + "/process-message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userMessage: text }),
   });
 
-  sendBtn()?.addEventListener("click", submitMessage);
+  const data = await res.json();
+  addMessage(data.botResponse || "No response.");
+  setLoading(false);
+}
 
-  resetBtn()?.addEventListener("click", () => {
-    messageList().innerHTML = "";
-    responses = [];
-    isFirstMessage = true;
-    resetPdfViewer();
-    populateBotResponse();
+function resetApp() {
+  messageList.innerHTML = "";
+  input.value = "";
+
+  pdfLoaded = false;
+  pdfFrame.src = "";
+  pdfFrame.hidden = true;
+  pdfEmpty.hidden = false;
+
+  sendBtn.disabled = true;
+
+  addMessage("Hello! Please upload a PDF to begin.");
+
+  // Create upload UI message
+  const line = document.createElement("div");
+  line.className = "message-line";
+
+  const box = document.createElement("div");
+  box.className = "message-box";
+
+  box.innerHTML = `
+    <input type="file" id="pdf-upload" accept="application/pdf">
+  `;
+
+  line.appendChild(box);
+  messageList.appendChild(line);
+
+  document.getElementById("pdf-upload").addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (file) uploadPdf(file);
   });
 
-  themeSwitch()?.addEventListener("change", () => {
-    document.body.classList.toggle("dark-mode", themeSwitch().checked);
-  });
+  scrollToBottom();
+}
 
-  window.addEventListener("resize", syncPanelHeights);
+sendBtn.addEventListener("click", () => {
+  const msg = input.value.trim();
+  if (!msg || !pdfLoaded) return;
 
-  populateBotResponse();
+  input.value = "";
+  addMessage(msg, "user");
+  sendMessage(msg);
 });
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    sendBtn.click();
+  }
+});
+
+resetBtn.addEventListener("click", resetApp);
+
+themeToggle.addEventListener("change", () => {
+  document.body.classList.toggle("dark-mode", themeToggle.checked);
+});
+
+resetApp();
