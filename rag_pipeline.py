@@ -4,7 +4,8 @@ import shutil
 import uuid
 from typing import Optional
 
-from langchain.chains import RetrievalQA
+from langchain.chains import ConversationalRetrievalChain
+from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import OllamaEmbeddings
@@ -25,7 +26,9 @@ CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "500"))
 CHUNK_OVERLAP = int(os.getenv("RAG_CHUNK_OVERLAP", "100"))
 RETRIEVER_K = int(os.getenv("RAG_RETRIEVER_K", "6"))
 
-logger.info("Initializing Ollama clients...")
+logger.info("Initializing Ollama clients (LLM=%s, EMB=%s, URL=%s)...",
+            LLM_MODEL, EMBEDDING_MODEL, OLLAMA_BASE_URL)
+
 try:
     llm = Ollama(
         model=LLM_MODEL,
@@ -39,15 +42,37 @@ try:
         base_url=OLLAMA_BASE_URL,
     )
 
-    logger.info("Ollama clients initialized successfully")
 except Exception:
     logger.exception("Failed to initialize Ollama clients")
     raise
 
-conversation_retrieval_chain: Optional[RetrievalQA] = None
+conversation_retrieval_chain: Optional[ConversationalRetrievalChain] = None
 current_document_path: Optional[str] = None
-chat_history = []
+chat_history: list[tuple[str, str]] = []
 
+MAX_HISTORY_TURNS = 12
+
+QA_PROMPT = PromptTemplate(
+    input_variables=["context", "question", "chat_history"],
+    template="""
+You are a helpful assistant answering questions about an uploaded PDF.
+
+Chat history:
+{chat_history}
+
+Use ONLY the context below to answer the question.
+If the answer is not in the context, say:
+"I could not find a grounded answer in the uploaded PDF."
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:
+""".strip()
+)
 
 def reset_state() -> None:
     global conversation_retrieval_chain, current_document_path, chat_history
@@ -97,18 +122,19 @@ def process_document(document_path: str) -> None:
     )
     db.persist()
 
-    conversation_retrieval_chain = RetrievalQA.from_chain_type(
+    retriever = db.as_retriever(
+        search_type="mmr",
+        search_kwargs={
+            "k": RETRIEVER_K,
+            "lambda_mult": 0.25,
+        },
+    )
+
+    conversation_retrieval_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
-        chain_type="stuff",
-        retriever=db.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": RETRIEVER_K,
-                "lambda_mult": 0.25,
-            },
-        ),
-        return_source_documents=False,
-        input_key="question",
+        retriever=retriever,
+        return_source_documents=True,
+        combine_docs_chain_kwargs={"prompt": QA_PROMPT},
     )
 
     current_document_path = document_path
@@ -131,14 +157,16 @@ def process_prompt(prompt: str) -> str:
 
     result = conversation_retrieval_chain.invoke({
         "question": prompt,
+        "chat_history": chat_history,
     })
 
-    answer = result.get("result", "").strip()
+    answer = result.get("answer", "").strip()
 
     if not answer:
         answer = "I could not find a grounded answer in the uploaded PDF."
 
     chat_history.append((prompt, answer))
+    chat_history[:] = chat_history[-MAX_HISTORY_TURNS:]
     logger.info("Generated response successfully")
 
     return answer
