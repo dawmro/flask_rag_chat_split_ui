@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PDF Chat Split</title>
+  <title>PDF Knowledge Base Chat</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
@@ -12,7 +12,7 @@
 
     <div class="panel">
       <div class="panel-header">
-        <h3 style="margin:0;">📄 Document</h3>
+        <h3 style="margin:0;">📄 Documents</h3>
 
         <label>
           <input type="checkbox" id="theme-toggle">
@@ -21,7 +21,13 @@
       </div>
 
       <div class="panel-body">
-        <div id="pdf-empty">Upload a PDF to preview it here.</div>
+        <div class="doc-controls">
+          <input type="file" id="pdf-upload" accept="application/pdf">
+        </div>
+
+        <div id="doc-list"></div>
+
+        <div id="pdf-empty">Select a PDF from the list to preview it.</div>
         <iframe id="pdf-frame" hidden></iframe>
       </div>
     </div>
@@ -29,6 +35,11 @@
     <div class="panel">
       <div class="panel-header">
         <h3 style="margin:0;">Chat</h3>
+
+        <select id="scope-select">
+          <option value="active">Active document</option>
+          <option value="all">All documents</option>
+        </select>
       </div>
 
       <div id="chat-window">
@@ -37,7 +48,7 @@
       </div>
 
       <div class="chat-input">
-        <input id="message-input" placeholder="Ask about the PDF..." autocomplete="off">
+        <input id="message-input" placeholder="Ask about the PDFs..." autocomplete="off">
         <button id="send-button" disabled>Send</button>
         <button id="reset-button">Reset</button>
       </div>

@@ -41,19 +41,49 @@ def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
 
 
+@app.route("/documents", methods=["GET"])
+def list_documents_route():
+    docs = rag_pipeline.list_documents()
+
+    # attach pdfUrl for frontend convenience
+    for d in docs:
+        d["pdfUrl"] = f"/uploads/{d['filename']}"
+
+    return jsonify({"documents": docs}), 200
+
+
+@app.route("/reset", methods=["POST"])
+def reset_route():
+    try:
+        rag_pipeline.reset_state()
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        logger.exception("Failed to reset backend state")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/process-message", methods=["POST"])
 def process_message_route():
     try:
         data = request.get_json(force=True) or {}
-        user_message = data.get("userMessage", "").strip()
+
+        user_message = (data.get("userMessage") or "").strip()
+        scope = (data.get("scope") or "active").strip()
+        doc_id = data.get("docId")
 
         if not user_message:
             return jsonify({"botResponse": "Message cannot be empty."}), 400
 
-        logger.info("User message received: %s", user_message)
-        bot_response = rag_pipeline.process_prompt(user_message)
+        result = rag_pipeline.process_prompt(
+            prompt=user_message,
+            scope=scope,
+            doc_id=doc_id,
+        )
 
-        return jsonify({"botResponse": bot_response}), 200
+        return jsonify({
+            "botResponse": result["answer"],
+            "sources": result["sources"],
+        }), 200
 
     except Exception as e:
         logger.exception("Failed to process message")
@@ -80,15 +110,13 @@ def process_document_route():
         file.save(file_path)
         logger.info("File saved to: %s", file_path)
 
-        rag_pipeline.process_document(file_path)
+        doc_info = rag_pipeline.process_document(file_path)
 
         return jsonify({
-            "botResponse": (
-                "PDF uploaded and indexed successfully.\n\n"
-                "This document replaced the previously loaded document context.\n\n"
-                "You can now ask questions about the new PDF."
-            ),
-            "pdfUrl": f"/uploads/{filename}"
+            "botResponse": f"PDF uploaded and indexed successfully: {filename}",
+            "pdfUrl": f"/uploads/{filename}",
+            "filename": filename,
+            "docId": doc_info["docId"],
         }), 200
 
     except Exception as e:
